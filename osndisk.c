@@ -144,9 +144,10 @@ static const char *scsi_short_device_types[] = {
 
 /* '--name' ('-n') option removed in version 0.11 and can now be reused */
 static struct option long_options[] = {
-	{"force_rescan", 0, 0, 'f'},
+	{"force", 0, 0, 'f'},
 	{"help", 0, 0, 'h'},
-	{"remove", 0, 0, 'r'},
+	{"list", 0, 0, 'l'},
+	{"rescan", 0, 0, 'r'},
 	{"verbose", 0, 0, 'v'},
 	{0, 0, 0, 0}
 };
@@ -202,12 +203,13 @@ static int iscsi_tsession_num;
 
 
 static const char *usage_message =
-    "Usage: osndisk  [--help] [--rescan] [--force_rescan] [--verbose]\n"
-    "  where:\n"
-    "    --help|-h            this usage information\n"
-    "    --force_rescan|-f    force rescan the device\n"
-    "    --remove|-r          remove unable device\n"
-    "    --verbose|-v         output detail information\n";
+    "Usage: osndisk  [--list] [--force] [--rescan] [--verbose] [--help]\n"
+	"where:\n"
+    "    --list|-l            list all disks\n"
+    "    --force|-f           force rescan new disks and update changed disks\n"
+    "    --rescan|-r          rescan new disk\n"
+    "    --verbose|-v         list detail disk information\n"
+	"    --help|-h            this usage information\n";
 
 static void usage(void)
 {
@@ -2365,7 +2367,7 @@ one_sdev_entry(const char *dir_name, const char *devname,
 			else if (!get_dev_node(wd, dev_node, typ))
 				snprintf(dev_node, NAME_MAX, "-       ");
 
-			printf("%-9s", dev_node);
+			printf("%-13s", dev_node);
 			if (op->dev_maj_min) {
 				if (get_value
 				    (wd, "dev", value, NAME_LEN_MAX))
@@ -2395,11 +2397,11 @@ one_sdev_entry(const char *dir_name, const char *devname,
 			if (blocks > 0
 			    && !string_get_size(blocks, STRING_UNITS_10,
 						value, NAME_LEN_MAX)) {
-				printf("  %6s", value);
+				printf("%-8s  ", value);
 			} else
-				printf("  %6s", "-");
+				printf("%-8s  ", "-");
 		} else
-			printf("  %6s", "-");
+			printf("%-8s  ", "-");
 	}
 
 
@@ -2412,12 +2414,12 @@ one_sdev_entry(const char *dir_name, const char *devname,
 			printf("vendor?  ");
 
 		if (get_value(buff, "model", value, NAME_LEN_MAX)) {
-			printf("%-16s ", value);
+			printf("%-16s  ", value);
 		} else
 			printf("model?           ");
 
 		if (get_value(buff, "rev", value, NAME_LEN_MAX)) {
-			printf("%-4s  ", value);
+			printf("%-4s", value);
 		} else
 			printf("rev?  ");
 	} else {
@@ -2602,13 +2604,13 @@ static void osn_output(void)
 		memset(value, '\0', NAME_LEN_MAX);
 	}
 	if (0 == output.device) {
-		strcpy(value, "Device");
-		printf("%-9s", value);
+		strcpy(value, "DeviceFile");
+		printf("%-13s", value);
 		memset(value, '\0', NAME_LEN_MAX);
 	}
 	if (0 == output.size) {
-		strcpy(value, "Size");
-		printf("%6s  ", value);
+		strcpy(value, "DiskSize");
+		printf("%-8s  ", value);
 		memset(value, '\0', NAME_LEN_MAX);
 	}
 
@@ -2619,7 +2621,7 @@ static void osn_output(void)
 	}
 	if (0 == output.model) {
 		strcpy(value, "Model");
-		printf("%-16s ", value);
+		printf("%-16s  ", value);
 		memset(value, '\0', NAME_LEN_MAX);
 	}
 	if (0 == output.rev) {
@@ -3056,7 +3058,7 @@ void osn_rescan_device(struct lsscsi_opt_coll *opts)
 int main(int argc, char **argv)
 {
 	int c;
-	int do_sdevices = 1;
+	int do_sdevices = 0;
 	int do_hosts = 0;
 	int do_rescan = 0;
 	struct lsscsi_opt_coll opts;
@@ -3067,41 +3069,54 @@ int main(int argc, char **argv)
 	opts.size++;
 	optind=0;
 	optarg=0;
+	int i=0;
 	while (1) {
 		int option_index = 0;
 
-		c = getopt_long(argc, argv, "fhvr",
+		c = getopt_long(argc, argv, "fhlvr",
 				long_options, &option_index);
 		if (c == -1)
 			break;
 
+		i++;
 		switch (c) {
 		case 'f':
 			++opts.force_rescan;
-			++opts.rescan;
 			++do_rescan;
 			break;
-		case 'h':
-			usage();
-			return 0;
+		case 'l':
+			++do_sdevices;
+			break;
 		case 'v':
+			++do_sdevices;
 			++opts.long_opt;
 			break;
 		case 'r':
 			++opts.rescan;
 			++do_rescan;
 			break;
+		case 'h':
+			usage();
+			return 1;
 		case '?':
 			usage();
 			return 1;
 		default:
-			fprintf(stderr, "?? getopt returned character "
-				"code 0x%x ??\n", c);
+			/*fprintf(stderr, "?? getopt returned character "
+				"code 0x%x ??\n", c);*/
 			usage();
 			return 1;
 		}
 	}
 
+	if(0==i){
+		usage();
+//		return 1;
+	}
+	if(1==opts.force_rescan&&0==opts.rescan){
+		printf("option --force|-f can't use alone, must use with --rescan|-r option!\n");
+		return 1;
+	}
 	if (optind < argc) {
 		const char *a1p = NULL;
 		const char *a2p = NULL;
