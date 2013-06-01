@@ -2559,7 +2559,7 @@ one_sdev_entry(const char *dir_name, const char *devname,
 	else if (0 == op->transport) {
 		if(op->long_opt>=3) printf("  %-22s","Vender");
 		if (get_value(buff, "vendor", value, NAME_LEN_MAX)) {
-			if(op->long_opt>=3) printf("%s\n", value);
+			if(op->long_opt>=3) printf("%s\n", "value");
 			else printf("  %-8s ", value);
 		} else{
 			if(op->long_opt>=3) printf("%s\n", "vendor?");
@@ -2568,7 +2568,7 @@ one_sdev_entry(const char *dir_name, const char *devname,
 
 		if(op->long_opt>=3) printf("  %-22s","Model");
 		if (get_value(buff, "model", value, NAME_LEN_MAX)) {
-			if(op->long_opt>=3) printf("%s\n", value);
+			if(op->long_opt>=3) printf("%s\n", "value");
 			else printf("%-16s  ", value);
 		} else{
 			if(op->long_opt>=3) printf("%s\n", "model?");
