@@ -2422,6 +2422,7 @@ one_sdev_entry(const char *dir_name, const char *devname,
 	int type;
 	int get_wwn = 0;
 
+
 	if (op->classic) {
 		one_classic_sdev_entry(dir_name, devname, op);
 		return;
@@ -2429,6 +2430,8 @@ one_sdev_entry(const char *dir_name, const char *devname,
 	strcpy(buff, dir_name);
 	strcat(buff, "/");
 	strcat(buff, devname);
+
+
 
 	if (get_value(buff, "type", value, NAME_LEN_MAX)) {
 		//only list "disk" type scsi device, fliter others
@@ -2448,7 +2451,7 @@ one_sdev_entry(const char *dir_name, const char *devname,
 		printf("%-13s", value);
 
 
-
+//	if(op->long_opt>=3) printf("  %-22s","DeviceF");
 	if (!get_value(buff, "type", value, NAME_LEN_MAX)) {
 		printf("type?   ");
 	} else if (1 != sscanf(value, "%d", &type)) {
@@ -2698,6 +2701,118 @@ one_sdev_entry(const char *dir_name, const char *devname,
 	}
 }
 
+/* List one SCSI device (LU) on a line. */
+static void
+osn_sdev_entry(const char *dir_name, const char *devname,
+	       const struct lsscsi_opt_coll *op)
+{
+	char buff[NAME_LEN_MAX];
+	char value[NAME_LEN_MAX] = { '\n' };
+	int type;
+	int get_wwn = 0;
+
+	if (op->classic) {
+		one_classic_sdev_entry(dir_name, devname, op);
+		return;
+	}
+	strcpy(buff, dir_name);
+	strcat(buff, "/");
+	strcat(buff, devname);
+
+	if (get_value(buff, "type", value, NAME_LEN_MAX)) {
+		//only list "disk" type scsi device, fliter others
+		sscanf(value, "%d", &type);
+		if(0!=type) return;
+		memset(value,'\0',NAME_LEN_MAX);
+		type=0;
+	}
+	else return;
+
+	if(op->long_opt>=3) printf("  %-22s","DeviceFile");
+	if (1 == non_sg_scan(buff, op)) {
+		char wd[NAME_LEN_MAX];
+		char extra[NAME_LEN_MAX];
+
+		if (DT_DIR == non_sg.d_type) {
+			strcpy(wd, buff);
+			strcat(wd, "/");
+			strcat(wd, non_sg.name);
+			if (1 == scan_for_first(wd, op))
+				strcpy(extra, aa_first.name);
+			else {
+				printf("unexpected scan_for_first error");
+				wd[0] = '\0';
+			}
+		} else {
+			strcpy(wd, buff);
+			strcpy(extra, non_sg.name);
+		}
+		if (wd[0] && (if_directory_chdir(wd, extra))) {
+			if (NULL == getcwd(wd, NAME_LEN_MAX)) {
+				printf("getcwd error");
+				wd[0] = '\0';
+			}
+		}
+		if (wd[0]) {
+			char dev_node[NAME_MAX + 1] = "";
+			char wwn_str[34];
+			enum dev_type typ;
+
+			typ = (FT_BLOCK == non_sg.ft) ? BLK_DEV : CHR_DEV;
+			if (get_wwn) {
+				if ((BLK_DEV == typ)
+				    && get_disk_wwn(wd, wwn_str,
+						    sizeof(wwn_str)))
+					printf("%-30s  ", wwn_str);
+				else
+					printf("                          "
+					       "      ");
+
+			}
+			if (op->kname)
+				snprintf(dev_node, NAME_MAX, "%s/%s",
+					 dev_dir, basename(wd));
+			else if (!get_dev_node(wd, dev_node, typ))
+				snprintf(dev_node, NAME_MAX, "-       ");
+
+			if(op->long_opt>=3) printf("%s\n",dev_node);
+			else
+				printf("%-13s", dev_node);
+			if (op->dev_maj_min) {
+				if (get_value
+				    (wd, "dev", value, NAME_LEN_MAX))
+					printf("[%s]", value);
+				else
+					printf("[dev?]");
+			}
+		}
+	} else {
+		if (get_wwn)
+			printf("                                ");
+		printf("%-9s", "-");
+	}
+
+
+	printf("\n");
+	if (op->long_opt>=3)
+		osn_longer_d_entry(buff, devname, op);
+	else if (op->long_opt > 0)
+		longer_d_entry(buff, devname, op);
+	//longer output format
+	if (op->verbose > 0) {
+		printf("  dir: %s  [", buff);
+		if (if_directory_chdir(buff, "")) {
+			char wd[NAME_LEN_MAX];
+
+			if (NULL == getcwd(wd, NAME_LEN_MAX))
+				printf("?");
+			else
+				printf("%s", wd);
+		}
+		printf("]\n");
+	}
+}
+
 static int sdev_scandir_select(const struct dirent *s)
 {
 /* Following no longer needed but leave for early lk 2.6 series */
@@ -2845,6 +2960,77 @@ static void list_sdevices(const struct lsscsi_opt_coll *op)
 	free(namelist);
 	if (op->wwn)
 		free_disk_wwn_node_list();
+}
+
+/* List SCSI devices (LUs). */
+static void osn_device_filter(const struct lsscsi_opt_coll *op)
+{
+	char buff[NAME_LEN_MAX];
+	char name[NAME_LEN_MAX];
+	struct dirent **namelist;
+	int num, k;
+
+
+	strcpy(buff, sysfsroot);
+	strcat(buff, bus_scsi_devs);
+
+	num = scandir(buff, &namelist, sdev_scandir_select,
+		      sdev_scandir_sort);
+	if (num < 0) {		/* scsi mid level may not be loaded */
+		if (op->verbose > 0) {
+			snprintf(name, NAME_LEN_MAX, "scandir: %s", buff);
+			perror(name);
+			printf
+			    ("SCSI mid level module may not be loaded\n");
+		}
+		if (op->classic)
+			printf("Attached devices: none\n");
+		return;
+	}
+	output.type++;
+	if(op->long_opt<3)
+		osn_output();
+
+	char buff2[NAME_LEN_MAX];
+	int s=0,f=0;
+
+	for (k = 0; k < num; ++k) {
+		strncpy(name, namelist[k]->d_name, NAME_LEN_MAX);
+		transport_id = TRANSPORT_UNKNOWN;
+		memset(buff2, '\0', NAME_LEN_MAX);
+		if(1 == filter_active){
+			strcpy(buff2, buff);
+			strcat(buff2, "/");
+			strcat(buff2, name);
+			strcat(buff2, "/");
+			strcat(buff2, "block");
+			strcat(buff2, "/");
+			strcat(buff2, basename(tmppath));
+//			printf("%s\n",buff2);
+			if(0 != access(buff2 , F_OK)){
+					continue;
+			}
+			else {
+				f=1; s++;
+			}
+			if(1 == f){
+				printf("  --- Physical device ---\n");
+				one_sdev_entry(buff, name, op);
+				f=0;
+			}
+		}
+		else
+			one_sdev_entry(buff, name, op);
+
+//		free(namelist[k]);
+	}
+	if(1 == filter_active && 0 == s){
+		printf("Can not found this DeviceFile !\n",tmppath);
+	}
+	for(k = 0; k < num; ++k)
+		free(namelist[k]);
+	free(namelist);
+
 }
 
 /* List host (initiator) attributes when --long given (one or more times). */
@@ -3318,14 +3504,16 @@ int main(int argc, char **argv)
 	int do_hosts = 0;
 	int do_rescan = 0;
 	struct lsscsi_opt_coll opts;
-
-
+	int i;
+/*	printf("%d\n",argc);
+	for(i=0;i<argc;i++)
+		printf("%s\n",argv[i]);*/
 	invalidate_hctl(&filter);
 	memset(&opts, 0, sizeof(opts));
 	opts.size++;
 	optind=0;
 	optarg=0;
-	int i=0;
+	i=0;
 	while (1) {
 		int option_index = 0;
 
@@ -3373,7 +3561,36 @@ int main(int argc, char **argv)
 		printf("option --force|-f can't use alone, please use with --rescan|-r option !\n");
 		return 1;
 	}
-	if (opts.long_opt >= 3) {
+	if (opts.long_opt >=3 ){
+
+		memset(tmppath,'\0',NAME_LEN_MAX);
+		int path_correct = 1;
+
+		if(optind < argc){
+
+			strcpy(tmppath,argv[optind]);
+//			printf("%s\n",tmppath);
+			if(strlen(tmppath)>strlen("/dev/") && strlen(tmppath)<=("/dev/sda/")
+					&& 0==strncmp(tmppath,"/dev/",5)){
+				path_correct = 1;
+			}
+			else path_correct = 2;
+			filter_active = 1;
+		}
+		else{
+			path_correct=0;
+		}
+
+		if(0 == path_correct){
+			printf("No DeviceFile specified, please supply name: /dev/sda etc !\n");
+			return 0;
+		}
+		if(2 == path_correct){
+			printf("DeviceFile format error, please supply name like /dev/sda etc !\n");
+			return 0;
+		}
+	}
+/*	if (opts.long_opt >= 3) {
 		if (optind < argc) {
 			const char *a1p = NULL;
 			const char *a2p = NULL;
@@ -3415,7 +3632,7 @@ int main(int argc, char **argv)
 		if (opts.verbose > 1) {
 			printf(" sysfsroot: %s\n", sysfsroot);
 		}
-	}
+	}*/
 //	do_hosts=1;
 //	++opts.long_opt;
 //	do_sdevices=1;
@@ -3425,7 +3642,8 @@ int main(int argc, char **argv)
 	} else if (do_hosts)
 		list_hosts(&opts);
 	else if (do_sdevices)
-		list_sdevices(&opts);
+//		list_sdevices(&opts);
+		osn_device_filter(&opts);
 
 	free_dev_node_list();
 
